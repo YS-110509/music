@@ -93,7 +93,7 @@
   .song-card{display:flex; align-items:center; gap:14px; padding:12px 16px; border:1px solid var(--line); border-radius:14px; cursor:pointer; background:var(--panel2); text-align:left; transition:border-color .15s, background .15s;}
   .song-card:hover{border-color:var(--accent); background:#222b4d;}
   .song-card:active{background:#1d2545;}
-  .song-card .card-icon{width:46px; height:46px; border-radius:10px; background:rgba(255,255,255,.05); display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0;}
+  .song-card .card-cover{width:52px; height:52px; border-radius:10px; object-fit:cover; flex-shrink:0; background:rgba(255,255,255,.05); display:block;}
   .song-card .card-info{flex:1; min-width:0;}
   .song-card .card-title{font-size:16px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .song-card .card-artist{font-size:12px; color:var(--dim); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
@@ -280,6 +280,14 @@
 </div>
 
 <div id="toast"></div>
+
+<div id="shareOverlay" style="position:fixed; inset:0; z-index:60; display:none; align-items:center; justify-content:center; flex-direction:column; background:rgba(5,7,15,.62); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);">
+  <div style="position:relative;">
+    <img id="shareImg" src="" alt="战绩卡片" style="width:min(88vw,620px); max-height:74vh; object-fit:contain; border-radius:16px; box-shadow:0 18px 60px rgba(0,0,0,.65); display:block;">
+    <button id="shareClose" style="position:absolute; top:-16px; right:-16px; width:36px; height:36px; border-radius:50%; background:#1d2440; border:1px solid var(--line); color:var(--text); font-size:16px; cursor:pointer; line-height:1;">✕</button>
+  </div>
+  <button class="primary" id="shareSave" style="margin-top:22px; padding:14px 34px; font-size:16px;">💾 保存至相册</button>
+</div>
 
 <script>
 'use strict';
@@ -724,11 +732,11 @@ function startAnalysis(buf, name, key){
 /* ---------- 内置曲目 ---------- */
 const MUSIC_BASE = 'https://music.roka.ink/';
 const BUILTIN_SONGS = [
-  {title:"Things You Said", artist:"Cody Fry", file:"Cody Fry - Things You Said.mp3", lrc:"Cody Fry _ Abby Cates - Things You Said_EM.lrc", duration:225},
-  {title:"Welcome Home", artist:"Radical Face", file:"Radical Face - Welcome Home.mp3", lrc:"Radical Face - Welcome Home_EM.lrc", duration:237},
-  {title:"我怀念的", artist:"孙燕姿", file:"孙燕姿 - 我怀念的.mp3", lrc:"孙燕姿 - 我怀念的_EG.lrc", duration:279},
-  {title:"朋友的酒", artist:"希玥不月半", file:"希玥不月半 - 朋友的酒.mp3", lrc:"希玥不月半 - 朋友的酒 (DJ-夢ノ結唱)_EM.lrc", duration:186},
-  {title:"小幸运", artist:"田馥甄", file:"田馥甄 - 小幸运.mp3", lrc:"田馥甄 - 小幸运_EM.lrc", duration:239}
+  {title:"Things You Said", artist:"Cody Fry", file:"Cody Fry - Things You Said.mp3", lrc:"Cody Fry _ Abby Cates - Things You Said_EM.lrc", cover:"Things Tou Said.png", duration:225},
+  {title:"Welcome Home", artist:"Radical Face", file:"Radical Face - Welcome Home.mp3", lrc:"Radical Face - Welcome Home_EM.lrc", cover:"Welcome Home.png", duration:237},
+  {title:"我怀念的", artist:"孙燕姿", file:"孙燕姿 - 我怀念的.mp3", lrc:"孙燕姿 - 我怀念的_EG.lrc", cover:"我怀念的.png", duration:279},
+  {title:"朋友的酒", artist:"希玥不月半", file:"希玥不月半 - 朋友的酒.mp3", lrc:"希玥不月半 - 朋友的酒 (DJ-夢ノ結唱)_EM.lrc", cover:"朋友的酒.png", duration:186},
+  {title:"小幸运", artist:"田馥甄", file:"田馥甄 - 小幸运.mp3", lrc:"田馥甄 - 小幸运_EM.lrc", cover:"小幸运.png", duration:239}
 ];
 function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function renderBuiltinSongs(){
@@ -739,7 +747,7 @@ function renderBuiltinSongs(){
     const b = document.createElement('button');
     b.className = 'song-card';
     b.innerHTML =
-      '<div class="card-icon">🎵</div>' +
+      '<img class="card-cover" src="'+encodeURI(MUSIC_BASE + s.cover)+'" alt="">' +
       '<div class="card-info">' +
         '<div class="card-title">'+escapeHtml(s.title)+'</div>' +
         '<div class="card-artist">'+escapeHtml(s.artist)+'</div>' +
@@ -1422,19 +1430,49 @@ function generateShareCard(){
   g.textAlign = 'left';
   return c;
 }
-function downloadShareCard(){
+let shareDataUrl = '';
+function dataUrlToFile(dataUrl, name){
+  const idx = dataUrl.indexOf(',');
+  const meta = dataUrl.slice(0, idx);
+  const b64 = dataUrl.slice(idx + 1);
+  const mime = (meta.match(/data:(.*?);base64/) || [])[1] || 'image/png';
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], name, {type:mime});
+}
+function showShareOverlay(){
   try{
     const c = generateShareCard();
-    const url = c.toDataURL('image/png');
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'rhythm-forge-result.png';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    toast('战绩卡片已生成并开始下载');
+    shareDataUrl = c.toDataURL('image/png');
+    $('shareImg').src = shareDataUrl;
+    $('shareOverlay').style.display = 'flex';
   }catch(e){
     toast('生成分享卡片失败：'+e.message, true);
+  }
+}
+function downloadShareDataUrl(){
+  const a = document.createElement('a');
+  a.href = shareDataUrl;
+  a.download = 'rhythm-forge-result.png';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  toast('已保存');
+}
+async function saveShareCard(){
+  if(!shareDataUrl) return;
+  try{
+    const file = dataUrlToFile(shareDataUrl, 'rhythm-forge-result.png');
+    if(navigator.share && navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file], title:'Rhythm Forge 战绩'});
+      toast('已保存');
+    } else {
+      downloadShareDataUrl();
+    }
+  }catch(e){
+    if(e && e.name === 'AbortError') return;
+    downloadShareDataUrl();
   }
 }
 
@@ -1618,7 +1656,10 @@ $('btnQuit').addEventListener('click', ()=>{
 $('btnRetry').addEventListener('click', ()=>{ if(mode==='tutorial') startTutorial(); else startGame(); });
 $('btnChangeDiff').addEventListener('click', showReady);
 $('btnNewSong').addEventListener('click', ()=>{ show('import'); });
-$('btnShare').addEventListener('click', downloadShareCard);
+$('btnShare').addEventListener('click', showShareOverlay);
+$('shareSave').addEventListener('click', saveShareCard);
+$('shareClose').addEventListener('click', ()=>{ $('shareOverlay').style.display = 'none'; });
+$('shareOverlay').addEventListener('click', e => { if(e.target === $('shareOverlay')) $('shareOverlay').style.display = 'none'; });
 renderBuiltinSongs();
 
 // 阻止 iOS 双击缩放
